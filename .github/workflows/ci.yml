@@ -63,6 +63,8 @@ jobs:
           ./build/ua2f_test
           ./build/ua2f_handler_test
           ./build/ua2f_proxy_test
+          ./build/ua2f_listener_test
+          ./build/ua2f_runtime_test
 
       - name: Generate unit test coverage
         run: |
@@ -119,6 +121,8 @@ jobs:
           ./build/ua2f_test
           ./build/ua2f_handler_test
           ./build/ua2f_proxy_test
+          ./build/ua2f_listener_test
+          ./build/ua2f_runtime_test
 
   test-standalone:
     name: Run unit tests without uci support
@@ -145,6 +149,8 @@ jobs:
           ./build/ua2f_test
           ./build/ua2f_handler_test
           ./build/ua2f_proxy_test
+          ./build/ua2f_listener_test
+          ./build/ua2f_runtime_test
 
       - name: Generate unit test coverage (standalone)
         run: |
