@@ -49,6 +49,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Read package version
+        shell: bash
+        run: |
+          version="$(sed -n 's/^PKG_VERSION:=//p' openwrt/Makefile)"
+          test -n "$version"
+          echo "UA2F_VERSION=$version" >> "$GITHUB_ENV"
+
       - name: Build x86_64 package
         uses: openwrt/gh-action-sdk@7fc2640243284ecc44f4a9c3f749a61746ee02cb # v11
         env:
@@ -63,7 +70,6 @@ jobs:
           package="$(find bin/packages -type f \( -iname '*ua2f*.ipk' -o -iname '*ua2f*.apk' \) -print -quit)"
           test -n "$package"
           echo "UA2F_PACKAGE=$package" >> "$GITHUB_ENV"
-          echo "UA2F_VERSION=$(sed -n 's/^PKG_VERSION:=//p' openwrt/Makefile)" >> "$GITHUB_ENV"
 
       - name: Install QEMU test dependencies
         run: |
@@ -77,7 +83,14 @@ jobs:
         run: |
           curl --fail --location --retry 5 "$IMAGE_URL" --output openwrt.img.gz
           echo "$IMAGE_SHA256  openwrt.img.gz" | sha256sum --check --strict
-          gzip --decompress openwrt.img.gz
+          gzip_status=0
+          gzip --decompress --stdout openwrt.img.gz > openwrt.img || gzip_status=$?
+          # Combined images contain signed trailing data, for which gzip returns 2.
+          case "$gzip_status" in
+            0|2) ;;
+            *) exit "$gzip_status" ;;
+          esac
+          test -s openwrt.img
 
       - name: Exercise the package in OpenWrt
         run: |
