@@ -509,6 +509,12 @@ start_service() {
 	procd_open_instance "$NAME"
 	procd_set_param command "$PROG"
 
+	local gcov_prefix
+	config_get gcov_prefix "main" "gcov_prefix"
+	if [ -n "$gcov_prefix" ]; then
+		procd_set_param env "GCOV_PREFIX=$gcov_prefix" "GCOV_PREFIX_STRIP=0"
+	fi
+
 	local handle_fw
 	config_get_bool handle_fw "firewall" "handle_fw" "0"
 	if [ "$handle_fw" -eq "1" ]; then

@@ -24,12 +24,23 @@ GUEST_PROMPT = re.compile(r"root@[^:\r\n]+:[^#\r\n]*# ")
 
 
 class OpenWrtQemuTest:
-    def __init__(self, image, package, expected_version, log_path, boot_timeout):
+    def __init__(
+        self,
+        image,
+        package,
+        expected_version,
+        log_path,
+        boot_timeout,
+        coverage_archive=None,
+    ):
         self.image = Path(image).resolve()
         self.package = Path(package).resolve()
         self.expected_version = expected_version
         self.log_path = Path(log_path).resolve()
         self.boot_timeout = boot_timeout
+        self.coverage_archive = (
+            Path(coverage_archive).resolve() if coverage_archive is not None else None
+        )
         self.helper = Path(__file__).with_name("http_test_endpoint.py").resolve()
 
         suffix = f"{os.getpid():x}"[-5:]
@@ -318,6 +329,11 @@ class OpenWrtQemuTest:
             raise AssertionError(
                 f"installed UA2F version did not contain {self.expected_version!r}:\n{output}"
             )
+        if self.coverage_archive is not None:
+            self.guest_command("rm -rf /tmp/ua2f-gcov")
+            self.guest_command(
+                "uci set ua2f.main.gcov_prefix=/tmp/ua2f-gcov && uci commit ua2f"
+            )
 
     def probe(self, port=80, requests=1):
         result = self._ns_run(
@@ -389,6 +405,51 @@ class OpenWrtQemuTest:
         if status == 0:
             raise AssertionError("UA2F nft table remained after stopping the service")
 
+    def export_coverage(self):
+        if self.coverage_archive is None:
+            return
+
+        print("[qemu] exporting OpenWrt gcov data", flush=True)
+        guest_archive = "/tmp/ua2f-gcov.tar.gz"
+        self.guest_command(
+            "test \"$(find /tmp/ua2f-gcov -name '*.gcda' | wc -l)\" -gt 0"
+        )
+        self.guest_command("sync")
+        self.guest_command(
+            f"tar -C /tmp/ua2f-gcov -czf {guest_archive} .", timeout=120
+        )
+
+        begin = f"__UA2F_GCOV_BEGIN_{uuid.uuid4().hex}__"
+        end = f"__UA2F_GCOV_END_{uuid.uuid4().hex}__"
+        _, output = self.guest_command(
+            f"echo {begin}; hexdump -ve '1/1 \"%02x\"' {guest_archive}; "
+            f"echo; echo {end}",
+            timeout=120,
+        )
+        normalized = output.replace("\r", "")
+        match = re.search(
+            rf"^{re.escape(begin)}\n(?P<payload>.*?)^{re.escape(end)}$",
+            normalized,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        if match is None:
+            raise RuntimeError("could not locate gcov archive markers in serial output")
+
+        payload = "".join(match.group("payload").split())
+        try:
+            archive = bytes.fromhex(payload)
+        except ValueError as error:
+            raise RuntimeError("guest returned invalid hexadecimal gcov data") from error
+        if not archive.startswith(b"\x1f\x8b"):
+            raise RuntimeError("guest gcov archive is not gzip data")
+
+        self.coverage_archive.parent.mkdir(parents=True, exist_ok=True)
+        self.coverage_archive.write_bytes(archive)
+        print(
+            f"[qemu] wrote {len(archive)} bytes to {self.coverage_archive}",
+            flush=True,
+        )
+
     @staticmethod
     def _terminate_process(process):
         if process is None or process.poll() is not None:
@@ -429,6 +490,7 @@ class OpenWrtQemuTest:
             for mode in ("NFQUEUE", "REDIRECT", "TPROXY"):
                 self.exercise_mode(mode)
             self.stop_and_verify_cleanup()
+            self.export_coverage()
             print("[qemu] all OpenWrt package and routing tests passed", flush=True)
         finally:
             self.cleanup()
@@ -441,6 +503,10 @@ def parse_args():
     parser.add_argument("--expected-version", required=True)
     parser.add_argument("--log", default="openwrt-qemu.log")
     parser.add_argument("--boot-timeout", type=int, default=300)
+    parser.add_argument(
+        "--coverage-archive",
+        help="write a gzip-compressed archive of gcda files collected in the guest",
+    )
     return parser.parse_args()
 
 
@@ -452,4 +518,5 @@ if __name__ == "__main__":
         arguments.expected_version,
         arguments.log,
         arguments.boot_timeout,
+        arguments.coverage_archive,
     ).run()
