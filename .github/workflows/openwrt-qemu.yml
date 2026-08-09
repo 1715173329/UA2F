@@ -1,0 +1,112 @@
+name: OpenWrt QEMU integration
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - '.github/workflows/openwrt-qemu.yml'
+      - 'CMakeLists.txt'
+      - 'openwrt/**'
+      - 'scripts/http_test_endpoint.py'
+      - 'scripts/test_openwrt_qemu.py'
+      - 'src/**'
+  pull_request:
+    paths:
+      - '.github/workflows/openwrt-qemu.yml'
+      - 'CMakeLists.txt'
+      - 'openwrt/**'
+      - 'scripts/http_test_endpoint.py'
+      - 'scripts/test_openwrt_qemu.py'
+      - 'src/**'
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openwrt-qemu-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qemu:
+    name: OpenWrt ${{ matrix.version }} x86_64
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - version: 24.10.8
+            image_url: https://downloads.openwrt.org/releases/24.10.8/targets/x86/64/openwrt-24.10.8-x86-64-generic-ext4-combined.img.gz
+            image_sha256: 23872c64fdb66d0765e0d17f71453a66e7a91e9ecb10606d5f738e6d166e14ae
+          - version: 25.12.5
+            image_url: https://downloads.openwrt.org/releases/25.12.5/targets/x86/64/openwrt-25.12.5-x86-64-generic-ext4-combined.img.gz
+            image_sha256: 23e2538e8ab0eb52dfed1c65d608ecdb71ffd432dd54885da138ae67cd9e4461
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Preserve QEMU test inputs
+        shell: bash
+        run: |
+          version="$(sed -n 's/^PKG_VERSION:=//p' openwrt/Makefile)"
+          test -n "$version"
+          echo "UA2F_VERSION=$version" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/ua2f-qemu"
+          cp scripts/http_test_endpoint.py scripts/test_openwrt_qemu.py \
+            "$RUNNER_TEMP/ua2f-qemu/"
+
+      - name: Build x86_64 package
+        uses: openwrt/gh-action-sdk@7fc2640243284ecc44f4a9c3f749a61746ee02cb # v11
+        env:
+          ARCH: x86_64-${{ matrix.version }}
+          FEEDNAME: packages_ci
+          PACKAGES: openwrt
+          V: sc
+
+      - name: Locate package
+        shell: bash
+        run: |
+          package="$(find bin/packages -type f \( -iname '*ua2f*.ipk' -o -iname '*ua2f*.apk' \) -print -quit)"
+          test -n "$package"
+          echo "UA2F_PACKAGE=$package" >> "$GITHUB_ENV"
+
+      - name: Install QEMU test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y iproute2 qemu-system-x86 qemu-utils python3-pexpect
+
+      - name: Download verified OpenWrt image
+        env:
+          IMAGE_URL: ${{ matrix.image_url }}
+          IMAGE_SHA256: ${{ matrix.image_sha256 }}
+        run: |
+          curl --fail --location --retry 5 "$IMAGE_URL" --output openwrt.img.gz
+          echo "$IMAGE_SHA256  openwrt.img.gz" | sha256sum --check --strict
+          gzip_status=0
+          gzip --decompress --stdout openwrt.img.gz > openwrt.img || gzip_status=$?
+          # Combined images contain signed trailing data, for which gzip returns 2.
+          case "$gzip_status" in
+            0|2) ;;
+            *) exit "$gzip_status" ;;
+          esac
+          test -s openwrt.img
+
+      - name: Exercise the package in OpenWrt
+        run: |
+          sudo -E python3 "$RUNNER_TEMP/ua2f-qemu/test_openwrt_qemu.py" \
+            --image openwrt.img \
+            --package "$UA2F_PACKAGE" \
+            --expected-version "$UA2F_VERSION" \
+            --log "openwrt-${{ matrix.version }}-qemu.log"
+
+      - name: Upload QEMU console log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: openwrt-${{ matrix.version }}-qemu-log
+          path: openwrt-${{ matrix.version }}-qemu.log
+          if-no-files-found: warn

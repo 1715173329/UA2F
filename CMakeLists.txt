@@ -6,14 +6,7 @@ set(CMAKE_C_STANDARD 17)
 cmake_policy(SET CMP0135 NEW)
 
 OPTION(UA2F_BUILD_TESTS "Build tests" OFF)
-
-if(DEFINED ENV{CI})
-    # In CI, always enable coverage for all builds
-    set(UA2F_ENABLE_COVERAGE ON CACHE BOOL "Enable code coverage (auto-enabled in CI)" FORCE)
-    message(STATUS "Auto-enabling coverage in CI environment")
-else()
-    OPTION(UA2F_ENABLE_COVERAGE "Enable code coverage" OFF)
-endif()
+OPTION(UA2F_ENABLE_COVERAGE "Enable code coverage" OFF)
 
 OPTION(UA2F_ENABLE_UCI "Enable UCI support" ON)
 OPTION(UA2F_NO_CACHE "Disable cache" OFF)
@@ -295,6 +288,7 @@ if (UA2F_BUILD_TESTS)
     target_include_directories(ua2f_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_include_directories(ua2f_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/third/llhttp)
     if (UA2F_ENABLE_UCI)
+        target_sources(ua2f_test PRIVATE test/config_test.cc)
         target_sources(ua2f_test PRIVATE src/config.c)
         target_link_libraries(ua2f_test uci)
     endif ()

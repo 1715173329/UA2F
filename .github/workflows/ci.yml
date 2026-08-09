@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake libnetfilter-queue-dev libmnl-dev libnetfilter-conntrack-dev lcov libjson-c-dev lcov libpcap-dev
+          sudo apt-get install -y cmake libnetfilter-queue-dev libmnl-dev libnetfilter-conntrack-dev lcov libjson-c-dev libpcap-dev
 
       - name: Build and install libubox
         working-directory: /tmp
@@ -51,20 +51,21 @@ jobs:
           cmake .. -DBUILD_LUA=OFF
           make
           sudo make install
+          sudo ldconfig
 
       - name: Generate pcap test data
         run: python3 test/gen_pcap.py
 
       - name: Run unit tests
         run: |
-          cmake -S . -B build -DUA2F_BUILD_TESTS=ON -DUA2F_ENABLE_UCI=OFF
+          cmake -S . -B build -DUA2F_BUILD_TESTS=ON -DUA2F_ENABLE_UCI=ON -DUA2F_ENABLE_COVERAGE=OFF
           cmake --build build
           ./build/ua2f_test
           ./build/ua2f_handler_test
 
       - name: Generate unit test coverage
         run: |
-          cmake -S . -B build-coverage -DUA2F_BUILD_TESTS=ON -DUA2F_ENABLE_UCI=OFF
+          cmake -S . -B build-coverage -DUA2F_BUILD_TESTS=ON -DUA2F_ENABLE_UCI=ON -DUA2F_ENABLE_COVERAGE=ON
           cmake --build build-coverage
           cd build-coverage
           make coverage-lcov
@@ -75,6 +76,8 @@ jobs:
           files: build-coverage/coverage.info
           flags: unittests
           fail_ci_if_error: true
+          disable_search: true
+          plugins: noop
           verbose: true
           use_oidc: true
 
@@ -98,7 +101,7 @@ jobs:
 
       - name: Build and run unit tests
         run: |
-          cmake -S . -B build -DUA2F_BUILD_TESTS=ON -DUA2F_ENABLE_UCI=OFF -DUA2F_ENABLE_BACKTRACE=OFF
+          cmake -S . -B build -DUA2F_BUILD_TESTS=ON -DUA2F_ENABLE_UCI=OFF -DUA2F_ENABLE_BACKTRACE=OFF -DUA2F_ENABLE_COVERAGE=OFF
           cmake --build build
           ./build/ua2f_test
           ./build/ua2f_handler_test
@@ -116,21 +119,21 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake libnetfilter-queue-dev libmnl-dev libnetfilter-conntrack-dev lcov lcov libpcap-dev
+          sudo apt-get install -y cmake libnetfilter-queue-dev libmnl-dev libnetfilter-conntrack-dev lcov libpcap-dev
 
       - name: Generate pcap test data
         run: python3 test/gen_pcap.py
 
       - name: Run unit tests
         run: |
-          cmake -S . -B build -DUA2F_BUILD_TESTS=ON -DUA2F_ENABLE_UCI=OFF
+          cmake -S . -B build -DUA2F_BUILD_TESTS=ON -DUA2F_ENABLE_UCI=OFF -DUA2F_ENABLE_COVERAGE=OFF
           cmake --build build
           ./build/ua2f_test
           ./build/ua2f_handler_test
 
       - name: Generate unit test coverage (standalone)
         run: |
-          cmake -S . -B build-coverage -DUA2F_BUILD_TESTS=ON -DUA2F_ENABLE_UCI=OFF
+          cmake -S . -B build-coverage -DUA2F_BUILD_TESTS=ON -DUA2F_ENABLE_UCI=OFF -DUA2F_ENABLE_COVERAGE=ON
           cmake --build build-coverage
           cd build-coverage
           make coverage-lcov
@@ -141,6 +144,8 @@ jobs:
           files: build-coverage/coverage.info
           flags: unittests-standalone
           fail_ci_if_error: true
+          disable_search: true
+          plugins: noop
           verbose: true
           use_oidc: true
 
@@ -151,7 +156,11 @@ jobs:
       id-token: write
     strategy:
       matrix:
-        cache: [ "-DUA2F_NO_CACHE=ON", "-DUA2F_NO_CACHE=OFF" ]
+        include:
+          - name: cache
+            cache: -DUA2F_NO_CACHE=OFF
+          - name: no-cache
+            cache: -DUA2F_NO_CACHE=ON
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -159,7 +168,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake libnetfilter-queue-dev libmnl-dev libnetfilter-conntrack-dev lcov
+          sudo apt-get install -y cmake iproute2 iptables nftables kmod libnetfilter-queue-dev libmnl-dev libnetfilter-conntrack-dev lcov
 
       - name: Setup Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -188,15 +197,16 @@ jobs:
 
       - name: Run integration tests
         run: |
-          cmake -S . -B build -DUA2F_BUILD_TESTS=OFF -DUA2F_ENABLE_UCI=OFF -DUA2F_ENABLE_ASAN=ON ${{ matrix.cache }}
+          cmake -S . -B build -DUA2F_BUILD_TESTS=OFF -DUA2F_ENABLE_UCI=OFF -DUA2F_ENABLE_BACKTRACE=OFF -DUA2F_ENABLE_ASAN=ON -DUA2F_ENABLE_COVERAGE=OFF ${{ matrix.cache }}
           cmake --build build
           sudo ./build/ua2f --version
           sudo -E $(which python3) scripts/test.py ./build/ua2f
+          sudo -E $(which python3) scripts/test_netns.py ./build/ua2f
 
       - name: Generate integration test coverage
         run: |
           # Build with coverage enabled for integration testing
-          cmake -S . -B build-coverage -DUA2F_BUILD_TESTS=OFF -DUA2F_ENABLE_UCI=OFF ${{ matrix.cache }}
+          cmake -S . -B build-coverage -DUA2F_BUILD_TESTS=OFF -DUA2F_ENABLE_UCI=OFF -DUA2F_ENABLE_BACKTRACE=OFF -DUA2F_ENABLE_COVERAGE=ON ${{ matrix.cache }}
           cmake --build build-coverage
           cd build-coverage
           
@@ -206,6 +216,7 @@ jobs:
           # Run integration tests with coverage-enabled binary
           sudo ./ua2f --version
           sudo -E $(which python3) ../scripts/test.py ./ua2f
+          sudo -E $(which python3) ../scripts/test_netns.py ./ua2f
           
           # Process coverage data with lcov
           make coverage-integration-process
@@ -230,15 +241,17 @@ jobs:
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           files: build-coverage/coverage-integration.info
-          flags: integration
+          flags: integration-${{ matrix.name }}
           fail_ci_if_error: true
+          disable_search: true
+          plugins: noop
           use_oidc: true
           verbose: true
 
       - name: Upload log
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: syslog-cache-${{ matrix.cache }}
+          name: syslog-${{ matrix.name }}
           path: /var/log/syslog
 
   build:
@@ -263,8 +276,8 @@ jobs:
           - mipsel_24kc
           - x86_64
         version:
-          - 23.05.5
-          - 24.10.0
+          - 24.10.8
+          - 25.12.5
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -279,27 +292,33 @@ jobs:
           PACKAGES: openwrt
           V: sc
 
-      - name: Move created packages to project dir
+      - name: Collect created packages
+        shell: bash
         run: |
-          mkdir -p tmp
-          cp bin/packages/${{ matrix.arch }}/packages_ci/*.ipk tmp/ || true
-          for f in tmp/*.ipk; do mv "$f" "${f/.ipk/-${{ matrix.version }}.ipk}" 2>/dev/null || true; done
-          mv tmp/*.ipk . 2>/dev/null || true
-          rm -rf tmp
+          mkdir -p artifacts
+          while IFS= read -r -d '' package; do
+            extension="${package##*.}"
+            stem="$(basename "$package" ".$extension")"
+            cp "$package" "artifacts/${stem}-${{ matrix.version }}.${extension}"
+          done < <(
+            find "bin/packages/${{ matrix.arch }}/packages_ci" -maxdepth 1 -type f \
+              \( -name '*.ipk' -o -name '*.apk' \) -print0
+          )
+          test -n "$(find artifacts -type f -print -quit)"
           
       - name: Store packages
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: "!startsWith(github.ref, 'refs/tags/v')"
         with:
           name: ${{ matrix.arch }}-${{ github.sha }}-${{ matrix.version }}-packages
-          path: "*.ipk"
+          path: artifacts/*
 
       - name: Upload packages
         uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # 2.11.5
         if: "startsWith(github.ref, 'refs/tags/v')"
         with:
           repo_token: ${{ github.token }}
-          file: "*.ipk"
+          file: "artifacts/*"
           tag: ${{ github.ref }}
           file_glob: true
 
