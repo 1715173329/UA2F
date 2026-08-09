@@ -299,8 +299,9 @@ if (UA2F_BUILD_TESTS)
             COMMAND echo "Running unit tests to generate coverage data"
             COMMAND ${CMAKE_CURRENT_BINARY_DIR}/ua2f_test
             COMMAND ${CMAKE_CURRENT_BINARY_DIR}/ua2f_handler_test
+            COMMAND ${CMAKE_CURRENT_BINARY_DIR}/ua2f_proxy_test
             COMMENT "Generating code coverage data"
-            DEPENDS ua2f_test ua2f_handler_test
+            DEPENDS ua2f_test ua2f_handler_test ua2f_proxy_test
             WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
         )
 
@@ -359,6 +360,41 @@ if (UA2F_BUILD_TESTS)
         target_link_libraries(ua2f_handler_test uci)
     endif ()
 
+    # Proxy lifecycle tests exercise listener setup, worker selection, and
+    # startup failure paths without requiring transparent-routing privileges.
+    add_executable(
+            ua2f_proxy_test
+            test/proxy_test.cc
+            src/proxy.c
+            src/handler.c
+            src/util.c
+            src/cache.c
+            src/http_session.c
+            src/http_parser_ua.c
+            src/statistics.c
+            src/cli.c
+            src/third/llhttp/llhttp.c
+            src/third/llhttp/api.c
+            src/third/llhttp/http.c
+    )
+    target_link_libraries(
+            ua2f_proxy_test
+            GTest::gtest_main
+            pthread
+            netfilter_queue
+            nfnetlink
+    )
+    ua2f_link_atomic_if_needed(ua2f_proxy_test)
+    target_compile_options(ua2f_proxy_test PRIVATE
+            $<$<COMPILE_LANGUAGE:C>:-iquote${CMAKE_CURRENT_SOURCE_DIR}/src>
+            $<$<COMPILE_LANGUAGE:CXX>:-iquote${CMAKE_CURRENT_SOURCE_DIR}/src>
+    )
+    target_include_directories(ua2f_proxy_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/third/llhttp)
+    if (UA2F_ENABLE_UCI)
+        target_sources(ua2f_proxy_test PRIVATE src/config.c)
+        target_link_libraries(ua2f_proxy_test uci)
+    endif ()
+
     # Conditionally link libpcap for pcap-based tests
     find_library(PCAP_LIB pcap)
     if(PCAP_LIB)
@@ -372,6 +408,7 @@ if (UA2F_BUILD_TESTS)
     include(GoogleTest)
     gtest_discover_tests(ua2f_test)
     gtest_discover_tests(ua2f_handler_test)
+    gtest_discover_tests(ua2f_proxy_test)
 else ()
     message(STATUS "Tests are disabled.")
 endif ()
