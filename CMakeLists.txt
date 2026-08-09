@@ -449,6 +449,7 @@ if (UA2F_BUILD_TESTS)
     target_compile_options(ua2f_runtime_test PRIVATE
             $<$<COMPILE_LANGUAGE:C>:-iquote${CMAKE_CURRENT_SOURCE_DIR}/src>
             $<$<COMPILE_LANGUAGE:CXX>:-iquote${CMAKE_CURRENT_SOURCE_DIR}/src>
+            $<$<COMPILE_LANGUAGE:C>:-UUA2F_ENABLE_BACKTRACE>
     )
     target_compile_definitions(ua2f_runtime_test PRIVATE
             main=ua2f_entrypoint
