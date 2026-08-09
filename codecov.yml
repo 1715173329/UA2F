@@ -31,6 +31,9 @@ flags:
   proxy-lifecycle:
     paths:
       - src/
+  openwrt-qemu:
+    paths:
+      - src/
 
 flag_management:
   default_rules:

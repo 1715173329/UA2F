@@ -25,6 +25,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: openwrt-qemu-${{ github.workflow }}-${{ github.ref }}
@@ -58,6 +59,9 @@ jobs:
           mkdir -p "$RUNNER_TEMP/ua2f-qemu"
           cp scripts/http_test_endpoint.py scripts/test_openwrt_qemu.py \
             "$RUNNER_TEMP/ua2f-qemu/"
+          mkdir -p "$RUNNER_TEMP/ua2f-qemu/source"
+          cp -a src "$RUNNER_TEMP/ua2f-qemu/source/"
+          touch openwrt/.ua2f-coverage-build
 
       - name: Build x86_64 package
         uses: openwrt/gh-action-sdk@7fc2640243284ecc44f4a9c3f749a61746ee02cb # v11
@@ -73,11 +77,15 @@ jobs:
           package="$(find bin/packages -type f \( -iname '*ua2f*.ipk' -o -iname '*ua2f*.apk' \) -print -quit)"
           test -n "$package"
           echo "UA2F_PACKAGE=$package" >> "$GITHUB_ENV"
+          gcov="$(find .pkgdir/openwrt-coverage/toolchain/bin -maxdepth 1 -type f -name '*-gcov' -print -quit)"
+          test -x "$gcov"
+          "$gcov" --version
+          test "$(find .pkgdir/openwrt-coverage/objects/CMakeFiles/ua2f.dir -name '*.gcno' | wc -l)" -gt 0
 
       - name: Install QEMU test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y iproute2 qemu-system-x86 qemu-utils python3-pexpect
+          sudo apt-get install -y iproute2 lcov qemu-system-x86 qemu-utils python3-pexpect
 
       - name: Download verified OpenWrt image
         env:
@@ -101,12 +109,70 @@ jobs:
             --image openwrt.img \
             --package "$UA2F_PACKAGE" \
             --expected-version "$UA2F_VERSION" \
-            --log "openwrt-${{ matrix.version }}-qemu.log"
+            --log "openwrt-${{ matrix.version }}-qemu.log" \
+            --coverage-archive "$RUNNER_TEMP/ua2f-qemu/openwrt-${{ matrix.version }}-gcda.tar.gz"
+
+      - name: Generate OpenWrt integration coverage
+        shell: bash
+        env:
+          GCDA_ARCHIVE: ${{ runner.temp }}/ua2f-qemu/openwrt-${{ matrix.version }}-gcda.tar.gz
+        run: |
+          mkdir -p openwrt-coverage/gcda
+          tar -xzf "$GCDA_ARCHIVE" -C openwrt-coverage/gcda
+
+          matched=0
+          while IFS= read -r -d '' gcda; do
+            relative="${gcda#*CMakeFiles/ua2f.dir/}"
+            destination=".pkgdir/openwrt-coverage/objects/CMakeFiles/ua2f.dir/$relative"
+            gcno="${destination%.gcda}.gcno"
+            if [[ ! -f "$gcno" ]]; then
+              echo "Missing matching gcno for $gcda" >&2
+              exit 1
+            fi
+            cp "$gcda" "$destination"
+            matched=$((matched + 1))
+          done < <(find openwrt-coverage/gcda -name '*.gcda' -print0)
+          test "$matched" -gt 0
+
+          cp -a "$RUNNER_TEMP/ua2f-qemu/source/src" "$GITHUB_WORKSPACE/"
+          if [[ ! -e /feed ]]; then
+            sudo ln -s "$GITHUB_WORKSPACE" /feed
+          fi
+          test "$(readlink -f /feed)" = "$GITHUB_WORKSPACE"
+
+          report="openwrt-coverage/coverage-openwrt-qemu.info"
+          gcov="$(find .pkgdir/openwrt-coverage/toolchain/bin -maxdepth 1 -type f -name '*-gcov' -print -quit)"
+          lcov --capture \
+            --directory .pkgdir/openwrt-coverage/objects/CMakeFiles/ua2f.dir \
+            --gcov-tool "$GITHUB_WORKSPACE/$gcov" \
+            --output-file "$report" \
+            --ignore-errors mismatch,inconsistent
+          sed -i "s#^SF:/feed/#SF:$GITHUB_WORKSPACE/#" "$report"
+          lcov --extract "$report" "$GITHUB_WORKSPACE/src/*" \
+            --output-file "$report" \
+            --ignore-errors unused,inconsistent
+          lcov --remove "$report" '*/src/third/*' \
+            --output-file "$report" \
+            --ignore-errors unused,inconsistent
+          lcov --list "$report"
+
+      - name: Upload OpenWrt integration coverage to Codecov
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          files: openwrt-coverage/coverage-openwrt-qemu.info
+          flags: openwrt-qemu
+          fail_ci_if_error: true
+          disable_search: true
+          plugins: noop
+          verbose: true
+          use_oidc: true
 
       - name: Upload QEMU console log
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: openwrt-${{ matrix.version }}-qemu-log
-          path: openwrt-${{ matrix.version }}-qemu.log
+          path: |
+            openwrt-${{ matrix.version }}-qemu.log
+            openwrt-coverage/coverage-openwrt-qemu.info
           if-no-files-found: warn
