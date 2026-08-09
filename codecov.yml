@@ -28,6 +28,9 @@ flags:
   integration-no-cache:
     paths:
       - src/
+  proxy-lifecycle:
+    paths:
+      - src/
 
 flag_management:
   default_rules:

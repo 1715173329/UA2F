@@ -70,12 +70,24 @@ jobs:
           cmake --build build-coverage
           cd build-coverage
           make coverage-lcov
+          make coverage-proxy-lcov
 
       - name: Upload unit test coverage to Codecov
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           files: build-coverage/coverage.info
           flags: unittests
+          fail_ci_if_error: true
+          disable_search: true
+          plugins: noop
+          verbose: true
+          use_oidc: true
+
+      - name: Upload proxy lifecycle coverage to Codecov
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          files: build-coverage/coverage-proxy.info
+          flags: proxy-lifecycle
           fail_ci_if_error: true
           disable_search: true
           plugins: noop

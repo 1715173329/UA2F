@@ -305,18 +305,24 @@ if (UA2F_BUILD_TESTS)
             WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
         )
 
-        # Add lcov target for preprocessed coverage data
+        # Upload conventional line coverage to Codecov. Keep a second report
+        # with branch data so branch gaps remain visible in the CI log without
+        # making partially covered branches look like completely missed lines.
         # Note: delete ua2f.dir gcda first — the production binary is never executed,
         # so its empty coverage data would override test coverage for shared sources.
         add_custom_target(coverage-lcov
             COMMAND find ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/ua2f.dir -name "*.gcda" -delete
+            COMMAND find ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/ua2f_proxy_test.dir -name "*.gcda" -delete
             COMMAND ${CMAKE_CURRENT_BINARY_DIR}/ua2f_test
             COMMAND ${CMAKE_CURRENT_BINARY_DIR}/ua2f_handler_test
-            COMMAND lcov --capture --directory . --output-file coverage.info --ignore-errors mismatch,inconsistent --branch-coverage
-            COMMAND lcov --remove coverage.info '*/test/*' '*/build*/_deps/*' '/usr/*' '*/googletest/*' '*_deps/*' '*/third/*' --output-file coverage.info --ignore-errors unused,inconsistent --branch-coverage
-            COMMAND lcov --list coverage.info --branch-coverage
+            COMMAND lcov --capture --directory . --output-file coverage.info --ignore-errors mismatch,inconsistent
+            COMMAND lcov --remove coverage.info '*/test/*' '*/build*/_deps/*' '/usr/*' '*/googletest/*' '*_deps/*' '*/third/*' --output-file coverage.info --ignore-errors unused,inconsistent
+            COMMAND lcov --list coverage.info
+            COMMAND lcov --capture --directory . --output-file coverage-branches.info --ignore-errors mismatch,inconsistent --branch-coverage
+            COMMAND lcov --remove coverage-branches.info '*/test/*' '*/build*/_deps/*' '/usr/*' '*/googletest/*' '*_deps/*' '*/third/*' --output-file coverage-branches.info --ignore-errors unused,inconsistent --branch-coverage
+            COMMAND lcov --list coverage-branches.info --branch-coverage
             COMMENT "Generating lcov coverage report"
-            DEPENDS ua2f_test ua2f_handler_test
+            DEPENDS ua2f_test ua2f_handler_test ua2f_proxy_test
             WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
         )
     endif()
@@ -395,6 +401,25 @@ if (UA2F_BUILD_TESTS)
         target_link_libraries(ua2f_proxy_test uci)
     endif ()
 
+    if (UA2F_ENABLE_COVERAGE)
+        # Keep this report in a separate Codecov flag. Adding proxy.c to the
+        # established unit-test flag would create an artificial flag-level
+        # regression even though the combined project coverage increases.
+        add_custom_target(coverage-proxy-lcov
+            COMMAND find ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/ua2f_proxy_test.dir -name "*.gcda" -delete
+            COMMAND ${CMAKE_CURRENT_BINARY_DIR}/ua2f_proxy_test
+            COMMAND lcov --capture --directory ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/ua2f_proxy_test.dir --output-file coverage-proxy.info --ignore-errors mismatch,inconsistent
+            COMMAND lcov --extract coverage-proxy.info '*/src/proxy.c' '*/src/mode.h' --output-file coverage-proxy.info --ignore-errors unused,inconsistent
+            COMMAND lcov --list coverage-proxy.info
+            COMMAND lcov --capture --directory ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/ua2f_proxy_test.dir --output-file coverage-proxy-branches.info --ignore-errors mismatch,inconsistent --branch-coverage
+            COMMAND lcov --extract coverage-proxy-branches.info '*/src/proxy.c' '*/src/mode.h' --output-file coverage-proxy-branches.info --ignore-errors unused,inconsistent --branch-coverage
+            COMMAND lcov --list coverage-proxy-branches.info --branch-coverage
+            COMMENT "Generating proxy lifecycle coverage report"
+            DEPENDS ua2f_proxy_test
+            WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        )
+    endif()
+
     # Conditionally link libpcap for pcap-based tests
     find_library(PCAP_LIB pcap)
     if(PCAP_LIB)
@@ -422,9 +447,12 @@ if (UA2F_ENABLE_COVERAGE)
     )
     
     add_custom_target(coverage-integration-process
-        COMMAND lcov --capture --directory . --output-file coverage-integration.info --ignore-errors mismatch,inconsistent --branch-coverage
-        COMMAND lcov --remove coverage-integration.info '*/test/*' '*/build*/_deps/*' '/usr/*' '*/googletest/*' '*_deps/*' '*/third/*' --output-file coverage-integration.info --ignore-errors unused,inconsistent --branch-coverage
-        COMMAND lcov --list coverage-integration.info --branch-coverage
+        COMMAND lcov --capture --directory . --output-file coverage-integration.info --ignore-errors mismatch,inconsistent
+        COMMAND lcov --remove coverage-integration.info '*/test/*' '*/build*/_deps/*' '/usr/*' '*/googletest/*' '*_deps/*' '*/third/*' --output-file coverage-integration.info --ignore-errors unused,inconsistent
+        COMMAND lcov --list coverage-integration.info
+        COMMAND lcov --capture --directory . --output-file coverage-integration-branches.info --ignore-errors mismatch,inconsistent --branch-coverage
+        COMMAND lcov --remove coverage-integration-branches.info '*/test/*' '*/build*/_deps/*' '/usr/*' '*/googletest/*' '*_deps/*' '*/third/*' --output-file coverage-integration-branches.info --ignore-errors unused,inconsistent --branch-coverage
+        COMMAND lcov --list coverage-integration-branches.info --branch-coverage
         COMMENT "Process integration test coverage data with lcov"
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     )
