@@ -49,12 +49,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Read package version
+      - name: Preserve QEMU test inputs
         shell: bash
         run: |
           version="$(sed -n 's/^PKG_VERSION:=//p' openwrt/Makefile)"
           test -n "$version"
           echo "UA2F_VERSION=$version" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/ua2f-qemu"
+          cp scripts/http_test_endpoint.py scripts/test_openwrt_qemu.py \
+            "$RUNNER_TEMP/ua2f-qemu/"
 
       - name: Build x86_64 package
         uses: openwrt/gh-action-sdk@7fc2640243284ecc44f4a9c3f749a61746ee02cb # v11
@@ -94,7 +97,7 @@ jobs:
 
       - name: Exercise the package in OpenWrt
         run: |
-          sudo -E python3 scripts/test_openwrt_qemu.py \
+          sudo -E python3 "$RUNNER_TEMP/ua2f-qemu/test_openwrt_qemu.py" \
             --image openwrt.img \
             --package "$UA2F_PACKAGE" \
             --expected-version "$UA2F_VERSION" \
