@@ -146,7 +146,7 @@ jobs:
             --directory .pkgdir/openwrt-coverage/objects/CMakeFiles/ua2f.dir \
             --gcov-tool "$GITHUB_WORKSPACE/$gcov" \
             --output-file "$report" \
-            --ignore-errors mismatch,inconsistent
+            --ignore-errors mismatch,inconsistent,source
           sed -i "s#^SF:/feed/#SF:$GITHUB_WORKSPACE/#" "$report"
           lcov --extract "$report" "$GITHUB_WORKSPACE/src/*" \
             --output-file "$report" \
