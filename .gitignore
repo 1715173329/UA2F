@@ -85,6 +85,9 @@ dkms.conf
 *.gcda
 *.info
 coverage_html/
+/openwrt-coverage/
+/openwrt/.ua2f-coverage-build
+/.pkgdir/
 /third_party/
 /ref/
 /scripts/benchmark-results/
