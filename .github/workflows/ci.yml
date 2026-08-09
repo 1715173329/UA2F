@@ -276,8 +276,8 @@ jobs:
           - mipsel_24kc
           - x86_64
         version:
-          - 23.05.5
-          - 24.10.0
+          - 24.10.8
+          - 25.12.5
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -292,27 +292,33 @@ jobs:
           PACKAGES: openwrt
           V: sc
 
-      - name: Move created packages to project dir
+      - name: Collect created packages
+        shell: bash
         run: |
-          mkdir -p tmp
-          cp bin/packages/${{ matrix.arch }}/packages_ci/*.ipk tmp/ || true
-          for f in tmp/*.ipk; do mv "$f" "${f/.ipk/-${{ matrix.version }}.ipk}" 2>/dev/null || true; done
-          mv tmp/*.ipk . 2>/dev/null || true
-          rm -rf tmp
+          mkdir -p artifacts
+          while IFS= read -r -d '' package; do
+            extension="${package##*.}"
+            stem="$(basename "$package" ".$extension")"
+            cp "$package" "artifacts/${stem}-${{ matrix.version }}.${extension}"
+          done < <(
+            find "bin/packages/${{ matrix.arch }}/packages_ci" -maxdepth 1 -type f \
+              \( -name '*.ipk' -o -name '*.apk' \) -print0
+          )
+          test -n "$(find artifacts -type f -print -quit)"
           
       - name: Store packages
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: "!startsWith(github.ref, 'refs/tags/v')"
         with:
           name: ${{ matrix.arch }}-${{ github.sha }}-${{ matrix.version }}-packages
-          path: "*.ipk"
+          path: artifacts/*
 
       - name: Upload packages
         uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # 2.11.5
         if: "startsWith(github.ref, 'refs/tags/v')"
         with:
           repo_token: ${{ github.token }}
-          file: "*.ipk"
+          file: "artifacts/*"
           tag: ${{ github.ref }}
           file_glob: true
 
