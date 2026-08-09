@@ -39,12 +39,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - version: 23.05.5
-            image_url: https://downloads.openwrt.org/releases/23.05.5/targets/x86/64/openwrt-23.05.5-x86-64-generic-ext4-combined.img.gz
-            image_sha256: f5c77659a33bd43cba105cf2f75e56d054fa9e0b9a73dc9f2a5bcb0e126ff7d5
-          - version: 24.10.0
-            image_url: https://downloads.openwrt.org/releases/24.10.0/targets/x86/64/openwrt-24.10.0-x86-64-generic-ext4-combined.img.gz
-            image_sha256: a873d9f2e6e667d03dd06f75ed1f1b580beb7ce4337d5a44b60911a266965fb5
+          - version: 24.10.8
+            image_url: https://downloads.openwrt.org/releases/24.10.8/targets/x86/64/openwrt-24.10.8-x86-64-generic-ext4-combined.img.gz
+            image_sha256: 23872c64fdb66d0765e0d17f71453a66e7a91e9ecb10606d5f738e6d166e14ae
+          - version: 25.12.5
+            image_url: https://downloads.openwrt.org/releases/25.12.5/targets/x86/64/openwrt-25.12.5-x86-64-generic-ext4-combined.img.gz
+            image_sha256: 23e2538e8ab0eb52dfed1c65d608ecdb71ffd432dd54885da138ae67cd9e4461
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -60,9 +60,9 @@ jobs:
       - name: Locate package
         shell: bash
         run: |
-          package="$(find bin/packages -type f -iname '*ua2f*.ipk' -print -quit)"
+          package="$(find bin/packages -type f \( -iname '*ua2f*.ipk' -o -iname '*ua2f*.apk' \) -print -quit)"
           test -n "$package"
-          echo "UA2F_IPK=$package" >> "$GITHUB_ENV"
+          echo "UA2F_PACKAGE=$package" >> "$GITHUB_ENV"
           echo "UA2F_VERSION=$(sed -n 's/^PKG_VERSION:=//p' openwrt/Makefile)" >> "$GITHUB_ENV"
 
       - name: Install QEMU test dependencies
@@ -83,7 +83,7 @@ jobs:
         run: |
           sudo -E python3 scripts/test_openwrt_qemu.py \
             --image openwrt.img \
-            --package "$UA2F_IPK" \
+            --package "$UA2F_PACKAGE" \
             --expected-version "$UA2F_VERSION" \
             --log "openwrt-${{ matrix.version }}-qemu.log"
 

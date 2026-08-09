@@ -81,6 +81,8 @@ class OpenWrtQemuTest:
             raise RuntimeError(f"OpenWrt image not found: {self.image}")
         if not self.package.is_file():
             raise RuntimeError(f"UA2F package not found: {self.package}")
+        if self.package.suffix not in (".ipk", ".apk"):
+            raise RuntimeError(f"unsupported OpenWrt package format: {self.package.suffix}")
         if not self.helper.is_file():
             raise RuntimeError(f"HTTP test helper not found: {self.helper}")
         for executable in ("ip", "qemu-img", "qemu-system-x86_64"):
@@ -295,15 +297,22 @@ class OpenWrtQemuTest:
         self.guest_command("ping -c 1 -W 3 10.242.2.2")
 
     def install_package(self):
-        print("[qemu] installing the freshly built UA2F IPK", flush=True)
+        print(f"[qemu] installing the freshly built UA2F {self.package.suffix}", flush=True)
         package_url = (
             f"http://10.0.2.2:{self.package_server_port}/"
             f"{shlex.quote(self.package.name)}"
         )
-        self.guest_command("opkg update", timeout=600)
-        self.guest_command(f"wget -O /tmp/ua2f.ipk {package_url}", timeout=120)
-        self.guest_command("opkg install /tmp/ua2f.ipk", timeout=600)
-        self.guest_command("opkg status ua2f | grep -q 'Status: install user installed'")
+        remote_package = f"/tmp/ua2f{self.package.suffix}"
+        if self.package.suffix == ".apk":
+            self.guest_command("apk update", timeout=600)
+            self.guest_command(f"wget -O {remote_package} {package_url}", timeout=120)
+            self.guest_command(f"apk add --allow-untrusted {remote_package}", timeout=600)
+            self.guest_command("apk info -e ua2f")
+        else:
+            self.guest_command("opkg update", timeout=600)
+            self.guest_command(f"wget -O {remote_package} {package_url}", timeout=120)
+            self.guest_command(f"opkg install {remote_package}", timeout=600)
+            self.guest_command("opkg status ua2f | grep -q 'Status: install user installed'")
         _, output = self.guest_command("/usr/bin/ua2f --version")
         if self.expected_version not in output:
             raise AssertionError(
@@ -428,7 +437,7 @@ class OpenWrtQemuTest:
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--image", required=True, help="decompressed OpenWrt x86_64 combined image")
-    parser.add_argument("--package", required=True, help="UA2F x86_64 .ipk built for the image release")
+    parser.add_argument("--package", required=True, help="UA2F x86_64 .ipk or .apk built for the image release")
     parser.add_argument("--expected-version", required=True)
     parser.add_argument("--log", default="openwrt-qemu.log")
     parser.add_argument("--boot-timeout", type=int, default=300)
